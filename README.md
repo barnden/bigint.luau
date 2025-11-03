@@ -2,7 +2,7 @@
 
 An implementation of BigInt, and more, in Luau.
 
-I suppose to teach the yutes cryptography.
+I suppose to teach the yutes.
 
 ## Usage
 To create a `BigInt` call `BigInt:new(value: Biggish, radix: number?)`
@@ -10,9 +10,8 @@ To create a `BigInt` call `BigInt:new(value: Biggish, radix: number?)`
 - If `value` is a `BigInt`, it returns the _same_ object; _not_ a clone.
 - If `value` is a `number` with magnitude $\leq 2^{53}$, otherwise `error()`.
 - If `value` is a `string`, then the string is parsed in base-10 unless:
-  - `radix` is specified; currently only `10` and `16` are valid values, or
-  - value is prefixed with `0x` and the radix is implied to be `16`
-    and parsed as hexadecimal.
+  - `radix` is specified; currently only `10` for decimal and `16` for hexadecimal are accepted, or
+  - `value` is prefixed with `0x` denoting a hexadecimal string.
 
 ```lua
 local a = BigInt:new(1337)
@@ -61,9 +60,10 @@ For comparing a `BigInt` with a `Biggish`, or a `Biggish` with a `Biggish`, the 
 ### Arithmetic and Relational Methods
 - All arithmetic metamethods are implemented and accept `Biggish` arguments for the left- and right-hand side arguments.
   - `__div` and `__idiv` both perform integer division (floor).
-  - `__mod` returns the modulo and not the remainder, i.e. `m % n` is always an element in $\mathbb{Z}/n\mathbb{Z}.$
-  - `__exp` does fast exponentation not using Montgomery ladder method
+  - `__mod` returns the modulo and not the remainder, i.e. `m % n` is always in $[0, n - 1]$
+  - `__exp` does fast exponentation without using the Montgomery ladder method
     - the exponent is limited to a maximum of $2^{32} - 1$
+    - negative exponents are invalid
 
 - The `abs()` method returns a nonnegative valued clone of the number.
 
@@ -112,7 +112,7 @@ The modular arithmetic operations are defined directly under the `BigMath` modul
     - Generates a random `BigInt` with `<= bits` binary digits.
     - Relies on the underlying Luau `random.random(a, b)` PRNG.
 - `BigMath.random.random_prime(bits: number): BigInt`
-    - Generates a random odd-prime with `<= bits` binary digits.
+    - Generates a random odd prime with `<= bits` binary digits.
 
 ### `BigMath.nt`
 - `BigMath.nt.lucas(num: BigInt, P: BigInt, Q: BigInt)`
@@ -142,12 +142,12 @@ The modular arithmetic operations are defined directly under the `BigMath` modul
     - Checks if a number is prime, using the strong Lucas probable prime test
 - `BigMath.prime.is_miller_rabin_prime(num: BigInt, p_t: number?): boolean`
     - Checks if a number is prime, using Miller-Rabin
-    - `p_t` is a threshold probability (default: $2^{-64}$) to determine the
+    - `p_t` is the threshold probability (default: $2^{-64}$) to determine the
       number of witnesses we should test against, the number of tests is determined
       by the formula given in FIPS 186-5.
 - `BigMath.prime.is_prime(num: BigInt, p_t: number?): boolean`
-    - Checks if a number is prime, effectively using a Baille-PSW test
-    - `p_t` is a threshold probability, see above and FIPS 186-5, defaults to $2 ^ {-16}$ as combining Miller-Rabin with a strong Lucas probable prime test means that it extremely unlikely a number is strongly pseudoprime to both tests.
+    - Checks if a number is prime, effectively performing a Baille-PSW test.
+    - `p_t` is the threshold probability (see above and FIPS 186-5) defaulting to a $2 ^ {-16}$ as combining Miller-Rabin with a strong Lucas probable prime test means that it extremely unlikely a number is strongly pseudoprime to both tests.
 
 ## Elliptic Curves
 A basic elliptic curve module is provided in `curves.luau`.
@@ -221,12 +221,10 @@ local Curve25519 = EC.Curve:new(p25519, 486662, 1, EC.CurveTypes.Montgomery)
 
 local G = Curve25519(9)
 -- We don't (yet) have an implementation of the SEA algorithm to compute the
--- order of a point on an elliptic curve defined over Z/pZ.
+-- order of a point on an elliptic curve.
 --
--- Luckily, Curve25519 has the property such that the order of a given point
--- is equal to 2 ^ 252 + 27742317777372353535851937790883648493.
---
--- SEA alg. ref: https://www.bens.ws/papers/SchoofElkiesAtkinAlgorithm.pdf
+-- Luckily, any given point on Curve25519 has a prime order equal to
+-- 2 ^ 252 + 27742317777372353535851937790883648493.
 local ord_G = (BigInt:new(2) ^ 252) + BigInt:new("27742317777372353535851937790883648493")
 
 math.randomseed(0)
@@ -249,3 +247,4 @@ print("signature accepted: " .. tostring(verify))
   - After this limit, Karatsuba's multiplication method is used for the algorithmic improvement.
 - Division is performed using standard division, as described in Algorithm D from _The Art of Computer Programming, Vol. 2_ by Donald Knuth.
 - Exponentiation is performed using the fast powering method, not using the Montgomery ladder.
+
