@@ -238,9 +238,8 @@ function module.modsqrt (_num: Biggish, _p: Biggish): BigInt?
     end
 
     if num.Words[1] % 4 == 3 then
-        -- It is trivial to find the modular square root if p equiv 3 (mod 4).
-        local modinv4 = module.modinv(4, p)
-        return module.modexp(num, (p + 1) * modinv4, p)
+        -- For primes congruent to 3 (mod 4) it is trivial to compute
+        return module.modexp(num, (p + 1):shr(2), p)
     end
 
     -- Otherwise, we use the Tonelli-Shanks algorithm
