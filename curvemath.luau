@@ -20,6 +20,44 @@ local module = {
     }
 }
 
+function module.shamir (_u: Biggish, G: Point, _v: Biggish, Q: Point): Point
+    --- Straus-Shamir trick of computing u * G + v * Q
+    local u: BigInt = BigInt:new(_u)
+    local v: BigInt = BigInt:new(_v)
+
+    local H: Point = G:__add(Q)
+    local R: Point
+
+    if #u > #v then
+        R = G
+    elseif #u < #v then
+        R = Q
+    else
+        R = H
+    end
+
+    local M: number = math.max(#u, #v)
+    for i = M - 1, 1, -1 do
+        R = R:__add(R)
+
+        -- Because #u might not equal #v, the i-th bit for either may be nil
+        -- So do not check if bit is equal to 0 as it may also be nil, and for
+        -- our purposes in this algorithm, nil is treated the same as 0
+        local b: number? = u:bit(i)
+        local c: number? = v:bit(i)
+
+        if (b == 1) and (c ~= 1) then
+            R = R:__add(G)
+        elseif (b ~= 1) and (c == 1) then
+            R = R:__add(Q)
+        elseif (b == 1) and (c == 1) then
+            R = R:__add(H)
+        end
+    end
+
+    return R
+end
+
 function module.factorization.ecm (_n: Biggish): BigInt
     local n: BigInt = BigInt:new(_n)
 
@@ -76,6 +114,32 @@ function module.signature.ecdsa.safe_sign (curve: Curve,
     return module.signature.ecdsa.sign(curve, G, n, d_A, Q_A, H_m)
 end
 
+function module.signature.ecdsa.ASN1DER (r: BigInt, s: BigInt): string
+    local hex_r = r:hex()
+    local hex_s = s:hex()
+
+    -- ASN.1/DER has signed integers, therefore, add zero-pad if first bit is
+    -- a one, as all of our numbers are positive.
+    hex_r = string.rep("0", #hex_r % 2) .. hex_r
+    hex_s = string.rep("0", #hex_s % 2) .. hex_s
+
+    if r.Words[#r.Words] >= 0x7fff then
+        hex_r = "00" .. hex_r
+    end
+
+    if s.Words[#s.Words] >= 0x7fff then
+        hex_s = "00" .. hex_s
+    end
+
+    local encoding = "02"
+                  .. string.format("%02x", #hex_r // 2) .. hex_r .. "02"
+                  .. string.format("%02x", #hex_s // 2) .. hex_s
+
+    return "30"
+        .. string.format("%02x", (#encoding // 2))
+        .. encoding
+end
+
 function module.signature.ecdsa.sign (curve: Curve,
                                       G: Point,
                                       n: BigInt,
@@ -103,7 +167,7 @@ function module.signature.ecdsa.sign (curve: Curve,
         repeat
             -- 2. Select k ~= 0 in Z/nZ such that (k * G).x ~= 0
             -- NOTE: The PRNG is not a CSPRNG as required for this application.
-            k = (bmath.random.random(#n) + 1) % n
+            k = bmath.random.random_modulo(n, true)
             P = G * k
             r = P.x % n
         until k:neq(0)
@@ -168,7 +232,8 @@ function module.signature.ecdsa.verify (curve: Curve,
     local u_2 = (r * s_inv) % n
 
     -- 6. Calculate the curve point P := (x_1, y_1) = u_1 * G + u_2 * Q_A
-    local P: Point = (G:__mul(u_1) :: Point):__add(Q_A:__mul(u_2) :: Point)
+    local P: Point = module.shamir(u_1, G, u_2, Q_A)
+
     -- 6.1 If P = 0 then the signature is invalid
     if P.at_infinity then
         return false
