@@ -157,6 +157,7 @@ To define a curve, call `Curve:new(field: Biggish, a: Biggish, b: Biggish, type:
 - Where `field` is a prime $p$ and $a, b \in \mathbb{Z}/p\mathbb{Z}$.
 - A curve can either be in Weierstrass or Montgomery form by specifying `type` as `CurveTypes.Weierstrass` and `CurveTypes.Montgomery`, respectively.
     - By default, `type` uses `CurveTypes.Weierstrass`
+    - In the module, `CurveTypes` is exported as `Types`
 - A curve given in Montgomery form is converted into the isomorphic Weierstrass curve internally.
     - Some algorithms assume Montgomery form for more efficient group operations, but we lose this due to the internal Weierstrass representation.
 
@@ -168,6 +169,23 @@ The arithmetic operators `+` and `*` are defined as follows:
 - `__add(a: Point, b: Point): Point` is defined to be the elliptic curve group operation $a + b$ between two points.
 - `__mul(a: Point | Biggish, b: Point | Biggish): Point` is defined as the repeated addition of a point onto itself.
     - Again, this does not use the Montgomery ladder method.
+
+### Standard Curves
+A `StandardCurves` table is added for convenience defining a couple of commonly used elliptic curves.
+
+Currently included curves are:
+- `secp256k1`
+- `secp256r1` or `NIST_P256`
+- `Curve25519`
+
+Each curve has the following properties
+- `Curve` the curve object which can be evaluated to obtain a point,
+- `Type` the form of the curve,
+- `Generator` is the generator point,
+- `n` is the order of the generator point,
+- `p` the prime field,
+- `a` and `b` are parameters defining the curve,
+- `g` is the $x$-coordinate used in the generator
 
 ### Example
 We can define the popular Curve25519 as follows:
@@ -183,6 +201,9 @@ local G = Curve25519(9)
 
 ## CurveMath
 The CurveMath module provided by `curvemath.luau` provides some functions that operate on elliptic curves.
+
+- `CurveMath.shamir(u: Biggish, G: Point, v: Biggish, Q: Point)`
+  - Computes $u \cdot G + v \cdot Q$ where $u, v \in \mathbb{Z}$ and $G, Q \in E[\mathbb{F}_p]$ using Shamir's (aka Straus') trick
 
 ### `CurveMath.factorization`
   - `CurveMath.factorization.ecm(n: Biggish): BigInt`
@@ -202,10 +223,13 @@ Compute and verify ellitpic curve digital signatures, make sure to bring your ow
       - `d_A` is the private key which is a randomly chosen element of $E[\mathbb{Z}/p\mathbb{Z}]$,
       - `Q_A` is the public key defined as the point $G \cdot d_A$,
       - `H_m` is the hashed message
-  - `CurveMath.signature.ecdsa.verify(curve: Curve, G: Point, n: BigInt, H_m: BigInt, r: BigInt, s: BigInt): boolean`
+  - `CurveMath.signature.ecdsa.ASN1DER(r: BigInt, s: BigInt): string`
+    - Converts the public key from an ordered pair $(r, s)$ into a ASN.1/DER encoding
+  - `CurveMath.signature.ecdsa.verify(curve: Curve, G: Point, n: BigInt, Q_A: Point, H_m: BigInt, r: BigInt, s: BigInt): boolean`
     - Determines whether the provided $(r, s)$ constitute a valid ECDSA signature for the hashed message `H_m` on the given curve.
       - `G` is a base point on $E[\mathbb{Z}/p\mathbb{Z}]$ such that $\mathrm{ord}(G)$ is prime,
       - `n` is the order of the base point $G$ (see above),
+      - `Q_A` is the public key, 
       - `H_m` is the hashed message,
       - `r` and `s` is the ECDSA signature
 
@@ -216,29 +240,42 @@ local bmath = require("./bigmath")
 local EC = require("./curves")
 local cmath = require("./curvemath")
 
-local p25519 = (BigInt:new(2) ^ 255) - 19
-local Curve25519 = EC.Curve:new(p25519, 486662, 1, EC.CurveTypes.Montgomery)
-
-local G = Curve25519(9)
--- We don't (yet) have an implementation of the SEA algorithm to compute the
--- order of a point on an elliptic curve.
---
--- Luckily, any given point on Curve25519 has a prime order equal to
--- 2 ^ 252 + 27742317777372353535851937790883648493.
-local ord_G = (BigInt:new(2) ^ 252) + BigInt:new("27742317777372353535851937790883648493")
-
 math.randomseed(0)
-local d_A = (bmath.random.random(#ord_G + 1) + 1) % ord_G -- secret key
-local Q_A = G * d_A -- public key
-local H_m = BigInt:new("cafebabe", 16) -- hashed message
 
-local r, s = cmath.signature.ecdsa.sign(Curve25519, G, ord_G, d_A, Q_A, H_m)
-print("   ecdsa signature: (" .. tostring(r) .. ", " .. tostring(s) .. ")")
--- prints: ecdsa signature: (4797708954858253810200771807699304566460053995183999736362545273270623416514, 5579183291292616664773041063091858420947611247974169285076049145309065004688)
+-- Using secp256k1 curve defined in curves.luau
+local curve = EC.StandardCurves.secp256k1
 
-local verify = cmath.signature.ecdsa.verify(Curve25519, G, ord_G, Q_A, H_m, r, s)
-print("signature accepted: " .. tostring(verify))
--- prints: signature accepted: true
+local secp256k1 = curve.Curve
+local G = curve.Generator -- The generator point
+local ord_G = curve.n -- Order of the generator point on the curve
+
+-- Generate a random private key from [1, n - 1]
+local d_A = bmath.random.random_modulo(curve.n, true)
+print("ECDSA privkey ........ (hex): " .. d_A:hex())
+-- prints: ECDSA privkey ........ (hex): 3b6eb58b2ebad58fa4c17181d755886f3114dba032dbb5504496bd00bcf68726
+
+local length = math.ceil(#ord_G / 4) -- used for padding hex strings in output
+
+-- Generate public key using private key and generator point
+local Q_A = G * d_A
+print("ECDSA pubkey .. (ANSI X9.63): 04" .. Q_A.x:hex(length) .. Q_A.y:hex(length))
+-- prints: ECDSA pubkey .. (ANSI X9.63): 04282ee9e14eecc9723ea6fe9eedbcb8c770fb8b38b0709b0cde6040d0a5f6be320f716dfb474630bfc52a4da2bbe0cd058fcea3846196ceed6bf3b8bdaf1b6afc
+
+-- The hashed message, in this case H_m := SHA256("Hello, World!") using utf-8
+local H_m = BigInt:new("0xdffd6021bb2bd5b0af676290809ec3a53191dd81c7f70a4b28688a362182986f")
+
+-- Generate signature for H_m using secp256k1
+local r, s = cmath.signature.ecdsa.sign(secp256k1, G, ord_G, d_A, Q_A, H_m)
+
+print("ECDSA Signature ..... (r||s): " .. r:hex(length) .. s:hex(length))
+-- prints: ECDSA Signature ..... (r||s): d044c8fae940af1d99370b73e7960cf46d6c33c4934aaaa15069ddd3698a909f04179d6230a1359207541916817b4afa0d3ce28523196e59ce823a88e108bf2b
+print("ECDSA Signature  (ASN.1/DER): " .. cmath.signature.ecdsa.ASN1DER(r, s))
+-- prints: ECDSA Signature  (ASN.1/DER): 3045022100d044c8fae940af1d99370b73e7960cf46d6c33c4934aaaa15069ddd3698a909f022004179d6230a1359207541916817b4afa0d3ce28523196e59ce823a88e108bf2b
+
+-- Check that the signature we just created is valid
+local verify = cmath.signature.ecdsa.verify(secp256k1, G, ord_G, Q_A, H_m, r, s)
+print("ECDSA Signature    verified?: " .. tostring(verify))
+-- prints: ECDSA Signature    verified?: true
 ```
 ## Implementation Details
 - `BigInt`s are represented as an array of base $2^{16}$ digits with a `boolean` defining whether a number is negative or nonegative.
