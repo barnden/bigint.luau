@@ -31,6 +31,7 @@ local CurveTypes = {
 }
 
 type CurveData = {
+    j_invariant: BigInt?,
     Type: CurveType,
     Field: BigInt,
     a: BigInt,
@@ -360,16 +361,16 @@ function Point.on_curve (point: Point): boolean
 
     local curve = point.Curve
 
-    local x = curve.x_from_weierstrass(point.x)
-    -- FIXME: luau-analyze code too complex to analyze if using curve(x)
-    local P = curve:__call(x)
+    local x = curve.x_from_weierstrass(point.x) :: BigInt
+    -- FIXME: luau-analyze code too complex to analyze if using operators
+    -- Compute the curve equation directly instead of using __call()
+    -- to avoid unnecessary modsqrt() and modexp() operations.
 
-    if not P then
-        return false
-    end
+    local expected =
+        x:__pow(3):__add(curve.a:__mul(x):__add(curve.b)):__mod(curve.Field)
 
     local computed = bmath.modexp(point.y, 2, curve.Field)
-    local expected = bmath.modexp(P.y, 2, curve.Field)
+
     return computed:__eq(expected)
 end
 
@@ -384,8 +385,63 @@ function Point.__tostring (point: Point): string
          .. ")"
 end
 
+-- These numbers are pretty large, so breaking the 80-char limit here
+local StandardCurves = {
+    secp256p1 = {
+        p = "0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff",
+        a = "0xffffffff00000001000000000000000000000000fffffffffffffffffffffffc",
+        b = "0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b",
+        Type = CurveTypes.Weierstrass,
+        n = "0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551",
+        g = "0x6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+    },
+    secp256k1 = {
+        p = "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f",
+        a = 0,
+        b = 7,
+        Type = CurveTypes.Weierstrass,
+        n = "0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141",
+        g = "0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    },
+    Curve25519 = {
+        p = "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffed",
+        a = 486662,
+        b = 1,
+        Type = CurveTypes.Montgomery,
+        n = "0x1000000000000000000000000000000014def9dea2f79cd65812631a5cf5d3ed",
+        g = 9
+    }
+}
+
+for curve, properties in pairs(StandardCurves) do
+    for field, value in pairs(properties) do
+        if type(value) == "table" then
+            continue
+        end
+
+        StandardCurves[curve][field] = BigInt:new(value)
+    end
+
+    StandardCurves[curve].Curve = Curve:new(
+        properties.p,
+        properties.a,
+        properties.b,
+        properties.Type
+    )
+
+    StandardCurves[curve].Generator = StandardCurves[curve].Curve:__call(properties.g)
+
+    assert(StandardCurves[curve].Generator ~= nil)
+    assert(StandardCurves[curve].Generator.at_infinity == false)
+
+    StandardCurves[curve] = table.freeze(StandardCurves[curve])
+end
+
+StandardCurves.NIST_P256 = StandardCurves.secp256r1
+
 return {
     ["Curve"] = Curve,
     ["Point"] = Point,
-    ["Types"] = CurveTypes
+    ["Types"] = table.freeze(CurveTypes),
+    ["StandardCurves"] = table.freeze(StandardCurves)
 }
