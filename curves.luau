@@ -54,6 +54,24 @@ type PointData = {
 }
 export type Point = typeof(setmetatable({} :: PointData, Point))
 
+function __characterize (curve: Curve): (BigInt, BigInt?)
+    local c4 = (-48 * curve.a) % curve.Field
+    local c6 = (-864 * curve.b) % curve.Field
+
+    local modinv1728 = bmath.modinv(1728, curve.Field)
+    local DeltaE = ((c4 ^ 3 - c6 ^ 2) * modinv1728) % curve.Field
+
+    if DeltaE:eq(0) then
+        -- Curve is singular
+        return DeltaE, nil
+    end
+
+    local invDeltaE = bmath.modinv(DeltaE, curve.Field)
+    local j_invariant = ((c4 ^ 3) * invDeltaE) % curve.Field
+
+    return DeltaE, j_invariant
+end
+
 function Curve:new (_field: Biggish,
                     _a: Biggish,
                     _b: Biggish,
@@ -77,6 +95,7 @@ function Curve:new (_field: Biggish,
     instance.Field = field
     instance.a = a
     instance.b = b
+
     instance.x_to_weierstrass = function (x: BigInt): BigInt
         return x
     end
@@ -137,7 +156,11 @@ function Curve:new (_field: Biggish,
         instance.b %= field
     end
 
-    return instance
+    -- FIXME: adding discriminant to CurveData causes luau-analyze errors
+    local _discriminant
+    _discriminant, instance.j_invariant = __characterize(instance :: Curve)
+
+    return table.freeze(instance)
 end
 
 function Curve.__tostring (curve: Curve): string
