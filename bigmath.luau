@@ -41,6 +41,19 @@ function module.random.random (bits: number?): BigInt
     return result
 end
 
+function module.random.random_modulo (_n: Biggish,
+                                      must_be_nonzero: boolean?
+                                     ): BigInt
+    local n: BigInt = BigInt:new(_n)
+    local result = module.random.random(#n + 1) % n
+
+    if (not must_be_nonzero) or (must_be_nonzero and result:neq(0)) then
+        return result
+    end
+
+    return module.random.random_modulo(n)
+end
+
 function module.random.random_prime (bits: number?): BigInt
     -- Generate (n - 1) bits and append a 1 to generate an n-bit odd prime
     -- FIXME: Handle case for n=1 or n=2.
