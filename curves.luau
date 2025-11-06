@@ -423,13 +423,16 @@ for curve, properties in pairs(StandardCurves) do
     end
 
     StandardCurves[curve].Curve = Curve:new(
-        properties.p,
-        properties.a,
-        properties.b,
-        properties.Type
+        properties.p :: BigInt,
+        properties.a :: BigInt,
+        properties.b :: BigInt,
+        (properties.Type or CurveTypes.Weierstrass) :: CurveType
     )
 
-    StandardCurves[curve].Generator = StandardCurves[curve].Curve:__call(properties.g)
+    -- FIXME: Had to cast Curve to any because luau-analyze did not recognize
+    --        the __call() metamethod.
+    StandardCurves[curve].Generator =
+        (StandardCurves[curve].Curve :: any):__call(properties.g)
 
     assert(StandardCurves[curve].Generator ~= nil)
     assert(StandardCurves[curve].Generator.at_infinity == false)
